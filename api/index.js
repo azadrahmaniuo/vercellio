@@ -2,9 +2,6 @@ export const config = { runtime: "edge" };
 
 const TARGET_BASE = "https://mase.codol.ir:6969".replace(/\/$/, "");
 const SECRET = process.env.SECRET_KEY;
-const DAILY_LIMIT = 1024 * 1024 * 1024; // 1 گیگابایت
-
-import { kv } from '@vercel/kv';
 
 const STRIP_HEADERS = new Set([
   "host",
@@ -22,27 +19,6 @@ const STRIP_HEADERS = new Set([
   "x-forwarded-port",
 ]);
 
-async function getUsage(ip) {
-  const key = `usage:${ip}`;
-  let data = await kv.get(key);
-
-  if (!data) {
-    const resetTime = Date.now() + 24 * 60 * 60 * 1000;
-    data = { bytes: 0, resetTime };
-    await kv.set(key, data, { ex: 86400 });
-    return data;
-  }
-
-  if (Date.now() > data.resetTime) {
-    const resetTime = Date.now() + 24 * 60 * 60 * 1000;
-    data = { bytes: 0, resetTime };
-    await kv.set(key, data, { ex: 86400 });
-    return data;
-  }
-
-  return data;
-}
-
 export default async function handler(req) {
   if (!SECRET) {
     return new Response("Server Misconfigured", { status: 500 });
@@ -51,25 +27,11 @@ export default async function handler(req) {
   const url = new URL(req.url);
   const providedSecret = req.headers.get("x-secret") || url.searchParams.get("s");
 
-  // Authentication
   if (providedSecret !== SECRET) {
     return new Response("Not Found", { status: 404 });
   }
 
-  const ip = req.headers.get("x-real-ip") ||
-             req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-             "unknown";
-
   try {
-    const usage = await getUsage(ip);
-
-    if (usage.bytes >= DAILY_LIMIT) {
-      return new Response("Daily limit exceeded (1GB per day)", { 
-        status: 429,
-        headers: { "Retry-After": "86400" }
-      });
-    }
-
     const pathStart = req.url.indexOf("/", 8);
     const targetUrl = pathStart === -1 
       ? TARGET_BASE + "/" 
@@ -93,14 +55,6 @@ export default async function handler(req) {
       duplex: "half",
       redirect: "manual",
     });
-
-    const contentLength = parseInt(response.headers.get("content-length") || "0");
-    const estimatedBytes = contentLength > 0 ? contentLength : 8192;
-
-    await kv.set(`usage:${ip}`, {
-      bytes: usage.bytes + estimatedBytes,
-      resetTime: usage.resetTime
-    }, { ex: 86400 });
 
     const resHeaders = new Headers(response.headers);
     resHeaders.delete("server");
