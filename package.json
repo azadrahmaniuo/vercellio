@@ -4,7 +4,4 @@
   "description": "Vercel",
   "private": true,
   "license": "MIT",
-  "dependencies": {
-    "@vercel/kv": "^1.0.0"
-  }
 }
